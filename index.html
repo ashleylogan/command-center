@@ -105,6 +105,22 @@
     opacity:1;
     font-weight:600;
   }
+  .backup-row{margin-bottom:8px;}
+  .backup-link{
+    background:none;border:none;
+    font-family:'Inter',sans-serif;
+    font-size:12px;font-weight:600;
+    color:var(--teal);
+    cursor:pointer;
+    padding:6px;
+  }
+  .settings-divider{color:var(--line);font-size:12px;margin:0 2px;}
+  .backup-status{
+    font-size:11px;color:var(--ink-soft);
+    min-height:14px;margin:0 0 10px;
+  }
+  .backup-status.err{color:#A5291E;}
+  .backup-status.ok{color:var(--sage);}
   main{
     flex:1;
     overflow-y:auto;
@@ -1025,7 +1041,7 @@ function renderDashboard(){
 
   if(state.focusMode){
     const undoneHabits = state.habits.filter(h=>!h.log[isoDate(today)]);
-    const upcomingGoal = state.goals.filter(g=>g.due).sort((a,b)=>daysRemaining(a.due)-daysRemaining(b.due))[0];
+    const upcomingGoal = state.goals.filter(g=>g.due && g.pct!==100).sort((a,b)=>daysRemaining(a.due)-daysRemaining(b.due))[0];
     const doneCount = state.habits.length - undoneHabits.length;
     const spentNow = monthTotal();
     const incomeNow = monthIncomeTotal();
@@ -1169,6 +1185,13 @@ function renderDashboard(){
     </div>
 
     <div class="settings-footer">
+      <div class="backup-row">
+        <button class="backup-link" id="download-backup-btn">Download backup</button>
+        <span class="settings-divider">·</span>
+        <button class="backup-link" id="restore-backup-btn">Restore from backup</button>
+        <input type="file" id="restore-file-input" accept="application/json" style="display:none;">
+      </div>
+      <p class="backup-status" id="backup-status"></p>
       <button class="reset-link ${resetArmed?'armed':''}" id="reset-data-btn">${resetArmed ? 'Tap again to confirm — this clears everything' : 'Reset all data'}</button>
     </div>
   `;
@@ -1627,6 +1650,19 @@ function attachEvents(){
   if(resetDataBtn) resetDataBtn.addEventListener('click', ()=>{
     if(resetArmed) doReset(); else armReset();
   });
+
+  const downloadBackupBtn = document.getElementById('download-backup-btn');
+  if(downloadBackupBtn) downloadBackupBtn.addEventListener('click', downloadBackup);
+
+  const restoreBackupBtn = document.getElementById('restore-backup-btn');
+  const restoreFileInput = document.getElementById('restore-file-input');
+  if(restoreBackupBtn && restoreFileInput){
+    restoreBackupBtn.addEventListener('click', ()=> restoreFileInput.click());
+    restoreFileInput.addEventListener('change', (e)=>{
+      restoreFromFile(e.target.files[0]);
+      restoreFileInput.value = '';
+    });
+  }
 
   const focusToggleBtn = document.getElementById('focus-toggle-btn');
   if(focusToggleBtn) focusToggleBtn.addEventListener('click', ()=>{
@@ -2090,8 +2126,27 @@ async function saveStateToStorage(attempt){
 function scheduleSave(){
   if(!storageAvailable) return;
   if(saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>saveStateToStorage(1), 400);
+  saveTimer = setTimeout(()=>saveStateToStorage(1), 150);
 }
+
+function flushSaveNow(){
+  // Best-effort synchronous-as-possible save, used right before the page
+  // unloads/refreshes so a pending debounced save doesn't get lost.
+  if(saveTimer){ clearTimeout(saveTimer); saveTimer = null; }
+  try{
+    if(hasArtifactStorage){
+      // Async storage can't be guaranteed to finish before unload, but fire it anyway.
+      window.storage.set(STORAGE_KEY, JSON.stringify(state), false);
+    } else {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+  } catch(err){ /* best effort only */ }
+}
+window.addEventListener('beforeunload', flushSaveNow);
+window.addEventListener('pagehide', flushSaveNow);
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'hidden') flushSaveNow();
+});
 
 function setSaveStatus(status){
   const el = document.getElementById('save-status');
@@ -2140,6 +2195,60 @@ async function doReset(){
   state = makeDefaultState();
   render();
   try{ location.reload(); } catch(err){ /* ignore if reload isn't available here */ }
+}
+
+function setBackupStatus(text, kind){
+  const el = document.getElementById('backup-status');
+  if(!el) return;
+  el.textContent = text;
+  el.className = 'backup-status' + (kind ? ' '+kind : '');
+}
+
+function downloadBackup(){
+  try{
+    const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `command-center-backup-${isoDate(today)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setBackupStatus('Backup downloaded', 'ok');
+  } catch(err){
+    console.error('Backup download failed:', err);
+    setBackupStatus("Couldn't create the backup file", 'err');
+  }
+}
+
+function looksLikeValidBackup(obj){
+  return !!(obj && typeof obj === 'object'
+    && Array.isArray(obj.goals) && Array.isArray(obj.habits)
+    && Array.isArray(obj.txns) && Array.isArray(obj.savings)
+    && Array.isArray(obj.dreams) && obj.nextId);
+}
+
+function restoreFromFile(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const parsed = JSON.parse(e.target.result);
+      if(!looksLikeValidBackup(parsed)){
+        setBackupStatus("That file doesn't look like a Command Center backup", 'err');
+        return;
+      }
+      state = parsed;
+      render();
+      setBackupStatus('Restored from backup', 'ok');
+    } catch(err){
+      console.error('Restore failed:', err);
+      setBackupStatus("Couldn't read that file", 'err');
+    }
+  };
+  reader.onerror = ()=> setBackupStatus("Couldn't read that file", 'err');
+  reader.readAsText(file);
 }
 
 document.getElementById('main').innerHTML = '<p class="empty">Loading your data…</p>';
