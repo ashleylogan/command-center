@@ -2354,7 +2354,10 @@ async function sendMagicLink(){
   }
   setAuthStatus('Sending…');
   try{
-    const { error } = await supabaseClient.auth.signInWithOtp({ email });
+    const { error } = await supabaseClient.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.href }
+    });
     if(error) throw error;
     setAuthStatus('');
     document.getElementById('auth-check-msg').classList.remove('hidden');
