@@ -375,10 +375,12 @@
   .savings-sub{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
   .savings-amt{font-family:'Fraunces',serif;color:var(--sage);font-size:15px;}
   .savings-controls{
-    display:flex;align-items:center;gap:8px;margin-top:10px;
+    display:flex;align-items:center;gap:6px;margin-top:10px;
+    flex-wrap:wrap;
   }
   .savings-controls input[type=number]{
-    flex:1;
+    flex:1 1 70px;
+    min-width:0;
     font-family:'Inter',sans-serif;
     font-size:13px;
     padding:8px 9px;
@@ -388,7 +390,7 @@
     color:var(--ink);
   }
   .btn.sage{background:var(--sage);}
-  .btn.small{width:auto;padding:8px 14px;font-size:12.5px;}
+  .btn.small{width:auto;padding:8px 12px;font-size:12px;flex-shrink:0;}
 
   /* Habits */
   .habit-card{
@@ -446,6 +448,13 @@
   }
   .month-nav .icon-btn:disabled{opacity:0.3;cursor:default;}
   .month-nav-label{font-family:'Fraunces',serif;font-size:14.5px;min-width:140px;text-align:center;}
+  .filter-row{display:flex;gap:8px;margin-bottom:14px;}
+  .filter-row select{
+    flex:1;min-width:0;
+    font-family:'Inter',sans-serif;font-size:13px;
+    padding:8px 9px;border:1px solid var(--line);border-radius:var(--radius);
+    background:#fff;color:var(--ink);
+  }
   .reorder-col{display:flex;flex-direction:column;gap:2px;}
   .reorder-col .icon-btn:disabled{opacity:0.25;cursor:default;}
   .streak-badge{
@@ -710,7 +719,10 @@
   .focus-check{
     width:23px;height:23px;border-radius:50%;
     border:1.5px solid var(--ink-soft);flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
   }
+  .focus-check.done{background:var(--gold);border-color:var(--gold);}
+  .focus-check.done::after{content:"✓";color:#fff;font-size:12px;}
   .focus-habit-name{font-family:'Fraunces',serif;font-size:16.5px;color:var(--ink);}
   .focus-done-msg{
     text-align:center;padding:18px 10px;color:var(--teal);font-size:14px;font-weight:600;
@@ -1098,6 +1110,12 @@ function categoryTotalsForMonth(ym){
 function monthTotalFor(ym){
   return state.txns.filter(t=>t.date.startsWith(ym)).reduce((s,t)=>s+t.amount,0);
 }
+function monthIncomeTotalFor(ym){
+  return state.income.filter(i=>i.date.startsWith(ym)).reduce((s,i)=>s+i.amount,0);
+}
+function categoryMonthSpentFor(cat, ym){
+  return state.txns.filter(t=>t.category===cat && t.date.startsWith(ym)).reduce((s,t)=>s+t.amount,0);
+}
 
 /* ---------- icons ---------- */
 const icons = {
@@ -1186,8 +1204,23 @@ function renderDashboard(){
 
       <div class="focus-card">
         <div class="focus-header-row">
+          <div class="focus-title">Quarterly Goals</div>
+          <span class="focus-view-link" data-tab="goals">View all</span>
+        </div>
+        ${periodGoals.length ? periodGoals.map(g=>{
+          const done = g.pct === 100;
+          return `
+          <div class="focus-habit-row" data-goal-complete="${g.id}">
+            <span class="focus-check ${done?'done':''}"></span>
+            <span class="focus-habit-name" style="${done?'text-decoration:line-through;color:var(--ink-soft);':''}">${escapeHtml(g.title)}</span>
+          </div>
+        `;}).join('') : '<div class="focus-done-msg" style="color:var(--ink-soft);">No goals this quarter yet</div>'}
+      </div>
+
+      <div class="focus-card">
+        <div class="focus-header-row">
           <div class="focus-title">Right now</div>
-          <span class="focus-view-link" data-tab="goals">View goals</span>
+          <span class="focus-view-link" data-tab="habits">View habits</span>
         </div>
         ${undoneHabits.length ? undoneHabits.map(h=>`
           <div class="focus-habit-row" data-habit-toggle="${h.id}" data-date="${isoDate(today)}">
@@ -1196,14 +1229,6 @@ function renderDashboard(){
           </div>
         `).join('') : '<div class="focus-done-msg">All habits done for today ✓</div>'}
         ${upcomingGoal ? `<div class="focus-next-line">Next deadline: <strong>${escapeHtml(upcomingGoal.title)}</strong> — ${dueLabel(upcomingGoal.due).text}</div>` : ''}
-      </div>
-
-      <div class="focus-card">
-        <div class="focus-title">Log an expense</div>
-        <input type="number" class="qs-amount-input" id="focus-amount" placeholder="Amount" step="0.01">
-        <div class="qs-chip-row">
-          ${state.expenseCategories.map(c=>`<button class="qs-chip" data-focus-cat="${c}">${c}</button>`).join('')}
-        </div>
       </div>
 
       <div class="show-full-link" id="show-full-dash">Show full dashboard</div>
@@ -1505,28 +1530,33 @@ let showCategoryManager = false;
 let showIncomeForm = false;
 
 function renderOverviewSub(){
-  const spent = monthTotal();
-  const income = monthIncomeTotal();
+  const viewYm = ymFromOffset(spendingMonthOffset);
+  const isCurrentMonth = spendingMonthOffset === 0;
+  const monthName = monthLabel(viewYm);
+  const spent = monthTotalFor(viewYm);
+  const income = monthIncomeTotalFor(viewYm);
   const leftToSpend = income - spent;
   const spentPct = income > 0 ? Math.min(100, Math.round((spent/income)*100)) : (spent>0 ? 100 : 0);
   const overIncome = spent > income;
   const budgetEntries = Object.entries(state.categoryBudgets);
-  const viewYm = ymFromOffset(spendingMonthOffset);
-  const monthCats = categoryTotalsForMonth(viewYm);
-  const monthMax = monthCats.length ? monthCats[0][1] : 1;
-  const monthTotalForView = monthTotalFor(viewYm);
 
   return `
+    <div class="month-nav">
+      <button class="icon-btn" data-spend-month-nav="1" title="Previous month">‹</button>
+      <span class="month-nav-label">${monthName}</span>
+      <button class="icon-btn" data-spend-month-nav="-1" ${spendingMonthOffset===0?'disabled':''} title="Next month">›</button>
+    </div>
+
     <div class="stat-card hero" style="margin-bottom:10px;">
       <div class="num" style="color:${leftToSpend>=0?'var(--sage)':'#A5291E'};">${leftToSpend>=0?'':'−'}${fmtMoney(Math.abs(leftToSpend))}</div>
-      <div class="label">Left to spend this month</div>
+      <div class="label">${isCurrentMonth ? 'Left to spend this month' : `Left over in ${monthName}`}</div>
     </div>
     <div class="spend-bar-track"><div class="spend-bar-fill ${overIncome?'over':''}" style="width:${spentPct}%"></div></div>
-    <p class="spend-bar-caption">${fmtMoney(spent)} spent of ${fmtMoney(income)} income this month</p>
+    <p class="spend-bar-caption">${fmtMoney(spent)} spent of ${fmtMoney(income)} income ${isCurrentMonth ? 'this month' : `in ${monthName}`}</p>
 
-    <p class="section-title">Budgets by category</p>
+    <p class="section-title">Budgets by category${isCurrentMonth ? '' : ` · ${monthName}`}</p>
     ${budgetEntries.length ? budgetEntries.map(([cat,budget])=>{
-      const catSpent = categoryMonthSpent(cat);
+      const catSpent = categoryMonthSpentFor(cat, viewYm);
       const remaining = budget - catSpent;
       const pct = Math.min(100, Math.round((catSpent/budget)*100));
       const over = catSpent > budget;
@@ -1540,7 +1570,7 @@ function renderOverviewSub(){
           </span>
         </div>
         <div class="cat-track"><div class="cat-fill ${over?'over':''}" style="width:${pct}%"></div></div>
-        <div class="cat-sub ${over?'over':''}">${fmtMoney(catSpent)} of ${fmtMoney(budget)} spent this month</div>
+        <div class="cat-sub ${over?'over':''}">${fmtMoney(catSpent)} of ${fmtMoney(budget)} spent ${isCurrentMonth ? 'this month' : `in ${monthName}`}</div>
       </div>
     `;}).join('') : '<p class="empty">No category budgets set yet.</p>'}
 
@@ -1567,24 +1597,13 @@ function renderOverviewSub(){
         <button class="qs-close-btn" id="cancel-category-manager" style="margin-top:8px;">Close</button>
       </div>
     ` : `<span class="text-link" id="toggle-category-manager">+ Manage categories</span>`}
-
-    <p class="section-title">By category</p>
-    <div class="month-nav">
-      <button class="icon-btn" data-spend-month-nav="1" title="Previous month">‹</button>
-      <span class="month-nav-label">${monthLabel(viewYm)}</span>
-      <button class="icon-btn" data-spend-month-nav="-1" ${spendingMonthOffset===0?'disabled':''} title="Next month">›</button>
-    </div>
-    ${spendingMonthOffset>0 ? `<p class="spend-bar-caption" style="margin-top:-10px;">${fmtMoney(monthTotalForView)} total spent</p>` : ''}
-    ${monthCats.length ? monthCats.map(([cat,amt])=>`
-      <div class="cat-bar-row">
-        <div class="cat-bar-label"><span>${cat}</span><span>${fmtMoney(amt)}</span></div>
-        <div class="cat-track"><div class="cat-fill" style="width:${Math.round((amt/monthMax)*100)}%"></div></div>
-      </div>
-    `).join('') : `<p class="empty">No spending logged for ${monthLabel(viewYm)}.</p>`}
   `;
 }
 
 let editingLedgerKey = null;
+
+let txnFilterType = 'all';
+let txnFilterCategory = 'all';
 
 function renderTransactionsSub(){
   const merged = [
@@ -1592,9 +1611,28 @@ function renderTransactionsSub(){
     ...state.income.map(i=>({ id:i.id, date:i.date, label:i.source, note:i.note, amount:i.amount, kind:'income' })),
   ].sort((a,b)=> a.date === b.date ? b.id - a.id : (a.date < b.date ? 1 : -1));
 
+  const categoryOptions = txnFilterType === 'income' ? INCOME_SOURCES
+    : txnFilterType === 'expense' ? state.expenseCategories
+    : [...new Set([...state.expenseCategories, ...INCOME_SOURCES])];
+
+  let filtered = merged;
+  if(txnFilterType !== 'all') filtered = filtered.filter(x=>x.kind===txnFilterType);
+  if(txnFilterCategory !== 'all') filtered = filtered.filter(x=>x.label===txnFilterCategory);
+
   return `
     <p class="section-title" style="margin-top:0;">Recent</p>
-    ${merged.length ? merged.slice(0,12).map(x=>{
+    <div class="filter-row">
+      <select id="txn-filter-type">
+        <option value="all" ${txnFilterType==='all'?'selected':''}>All</option>
+        <option value="expense" ${txnFilterType==='expense'?'selected':''}>Expenses</option>
+        <option value="income" ${txnFilterType==='income'?'selected':''}>Income</option>
+      </select>
+      <select id="txn-filter-category">
+        <option value="all" ${txnFilterCategory==='all'?'selected':''}>All categories</option>
+        ${categoryOptions.map(c=>`<option ${c===txnFilterCategory?'selected':''}>${c}</option>`).join('')}
+      </select>
+    </div>
+    ${filtered.length ? filtered.slice(0,12).map(x=>{
       const key = `${x.kind}:${x.id}`;
       const isEditing = editingLedgerKey === key;
       if(isEditing){
@@ -1630,7 +1668,7 @@ function renderTransactionsSub(){
           <button class="del-x" data-del-${x.kind==='income'?'income':'txn'}="${x.id}">✕</button>
         </div>
       </div>
-    `;}).join('') : '<p class="empty">No transactions yet.</p>'}
+    `;}).join('') : `<p class="empty">${merged.length ? 'No transactions match this filter.' : 'No transactions yet.'}</p>`}
 
     ${showTxnForm ? `
       <p class="section-title">Log an expense</p>
@@ -1786,15 +1824,6 @@ function attachEvents(){
   if(showFullDash) showFullDash.addEventListener('click', ()=>{
     state.focusMode = false;
     render();
-  });
-  document.querySelectorAll('[data-focus-cat]').forEach(el=>{
-    el.addEventListener('click', ()=>{
-      const amt = parseFloat(document.getElementById('focus-amount').value);
-      if(!amt || amt<=0) return;
-      const category = el.getAttribute('data-focus-cat');
-      state.txns.push({id: state.nextId.txn++, date: isoDate(today), category, amount: amt, note:''});
-      render();
-    });
   });
 
   document.querySelectorAll('[data-spend-sub]').forEach(el=>{
@@ -2020,6 +2049,18 @@ function attachEvents(){
       spendingMonthOffset = Math.max(0, spendingMonthOffset + delta);
       render();
     });
+  });
+
+  const txnFilterTypeEl = document.getElementById('txn-filter-type');
+  if(txnFilterTypeEl) txnFilterTypeEl.addEventListener('change', ()=>{
+    txnFilterType = txnFilterTypeEl.value;
+    txnFilterCategory = 'all'; // reset category filter since the available list changes with type
+    render();
+  });
+  const txnFilterCategoryEl = document.getElementById('txn-filter-category');
+  if(txnFilterCategoryEl) txnFilterCategoryEl.addEventListener('change', ()=>{
+    txnFilterCategory = txnFilterCategoryEl.value;
+    render();
   });
 
   document.querySelectorAll('[data-edit-habit]').forEach(el=>{
