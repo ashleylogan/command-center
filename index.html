@@ -220,7 +220,6 @@
   }
   .goal-top{display:flex;justify-content:space-between;gap:8px;}
   .goal-title{font-size:15px;font-weight:600;}
-  .goal-pct{font-family:'Fraunces',serif;color:var(--gold);font-size:15px;}
   .goal-check{
     width:22px;height:22px;border-radius:50%;
     border:1.5px solid var(--gold);flex-shrink:0;
@@ -236,10 +235,31 @@
     height:5px;background:var(--gold-bg);border-radius:4px;margin-top:10px;overflow:hidden;
   }
   .bar-fill{height:100%;background:var(--gold);}
-  .goal-controls{
-    display:flex;align-items:center;gap:8px;margin-top:10px;
+  .goal-progress-row{display:flex;align-items:center;gap:12px;margin:14px 0 10px;}
+  .goal-slider{
+    flex:1;-webkit-appearance:none;appearance:none;
+    height:8px;border-radius:4px;
+    outline:none;cursor:pointer;
   }
-  .goal-controls input[type=range]{flex:1;accent-color:var(--gold);}
+  .goal-slider::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:18px;height:18px;border-radius:50%;
+    background:var(--gold);border:2px solid #fff;
+    box-shadow:0 1px 3px rgba(0,0,0,0.3);
+    cursor:pointer;
+  }
+  .goal-slider::-moz-range-thumb{
+    width:18px;height:18px;border-radius:50%;
+    background:var(--gold);border:2px solid #fff;
+    box-shadow:0 1px 3px rgba(0,0,0,0.3);
+    cursor:pointer;
+  }
+  .goal-slider::-moz-range-track{height:8px;border-radius:4px;background:var(--gold-bg);}
+  .goal-slider::-moz-range-progress{background:var(--gold);height:8px;border-radius:4px;}
+  .goal-pct-label{
+    font-family:'Fraunces',serif;color:var(--gold);font-size:15px;
+    min-width:44px;text-align:right;flex-shrink:0;
+  }
   .del-x{
     color:var(--ink-soft);
     font-size:12px;
@@ -414,6 +434,18 @@
   }
   .week-nav .icon-btn:disabled{opacity:0.3;cursor:default;}
   .week-nav-label{font-family:'Fraunces',serif;font-size:14.5px;min-width:120px;text-align:center;}
+  .month-nav{
+    display:flex;align-items:center;justify-content:center;gap:12px;
+    margin-bottom:12px;
+  }
+  .month-nav .icon-btn{
+    border:1px solid var(--line);border-radius:50%;
+    width:24px;height:24px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;color:var(--ink-soft);
+  }
+  .month-nav .icon-btn:disabled{opacity:0.3;cursor:default;}
+  .month-nav-label{font-family:'Fraunces',serif;font-size:14.5px;min-width:140px;text-align:center;}
   .reorder-col{display:flex;flex-direction:column;gap:2px;}
   .reorder-col .icon-btn:disabled{opacity:0.25;cursor:default;}
   .streak-badge{
@@ -481,6 +513,22 @@
     padding:10px;cursor:pointer;
     border:1px dashed var(--line);border-radius:var(--radius);
     margin-bottom:16px;
+  }
+  .text-link{
+    display:block;
+    font-size:12.5px;font-weight:600;color:var(--rust);
+    cursor:pointer;
+    padding:4px 0 14px;
+  }
+  .spend-bar-track{
+    height:10px;background:var(--sage-bg);border-radius:5px;overflow:hidden;
+    margin-bottom:8px;
+  }
+  .spend-bar-fill{height:100%;background:var(--rust);border-radius:5px;}
+  .spend-bar-fill.over{background:#A5291E;}
+  .spend-bar-caption{
+    font-size:12.5px;color:var(--ink-soft);
+    margin:0 0 18px;
   }
   .spend-summary{
     display:flex;gap:10px;margin-bottom:18px;
@@ -1024,6 +1072,32 @@ function categoryMonthSpent(cat){
   const ym = isoDate(today).slice(0,7);
   return state.txns.filter(t=>t.category===cat && t.date.startsWith(ym)).reduce((s,t)=>s+t.amount,0);
 }
+function categoryTotalsThisMonth(){
+  const ym = isoDate(today).slice(0,7);
+  const map = {};
+  state.txns.filter(t=>t.date.startsWith(ym)).forEach(t=>{
+    map[t.category] = (map[t.category]||0) + t.amount;
+  });
+  return Object.entries(map).sort((a,b)=>b[1]-a[1]);
+}
+function ymFromOffset(offset){
+  const d = new Date(today.getFullYear(), today.getMonth()-offset, 1);
+  return isoDate(d).slice(0,7);
+}
+function monthLabel(ym){
+  const [y,m] = ym.split('-').map(Number);
+  return new Date(y, m-1, 1).toLocaleDateString(undefined, {month:'long', year:'numeric'});
+}
+function categoryTotalsForMonth(ym){
+  const map = {};
+  state.txns.filter(t=>t.date.startsWith(ym)).forEach(t=>{
+    map[t.category] = (map[t.category]||0) + t.amount;
+  });
+  return Object.entries(map).sort((a,b)=>b[1]-a[1]);
+}
+function monthTotalFor(ym){
+  return state.txns.filter(t=>t.date.startsWith(ym)).reduce((s,t)=>s+t.amount,0);
+}
 
 /* ---------- icons ---------- */
 const icons = {
@@ -1273,18 +1347,19 @@ function renderGoals(){
               ${g.note ? `<div class="goal-note">${escapeHtml(g.note)}</div>` : ''}
             </div>
           </div>
-          <div style="display:flex;align-items:flex-start;gap:6px;">
-            <span class="goal-pct">${done?'Done':g.pct+'%'}</span>
-            <button class="del-x" data-del-goal="${g.id}">✕</button>
-          </div>
+          <button class="del-x" data-del-goal="${g.id}">✕</button>
         </div>
-        <div class="bar-track"><div class="bar-fill" style="width:${g.pct}%"></div></div>
+
+        <div class="goal-progress-row">
+          <input type="range" class="goal-slider" min="0" max="100" value="${g.pct}"
+            style="background:linear-gradient(to right, var(--gold) ${g.pct}%, var(--gold-bg) ${g.pct}%)"
+            data-goal-slider="${g.id}">
+          <span class="goal-pct-label">${done?'Done':g.pct+'%'}</span>
+        </div>
+
         <div class="goal-meta">
           <span class="due-pill ${due.cls}">${due.text}</span>
           ${g.due ? `<span class="due-date">${g.due}</span>` : ''}
-        </div>
-        <div class="goal-controls">
-          <input type="range" min="0" max="100" value="${g.pct}" data-goal-slider="${g.id}">
         </div>
       </div>
     `;}).join('') : `<p class="empty">No goals for ${labelForView(view)} yet.</p>`}
@@ -1425,6 +1500,7 @@ function renderSpending(){
 }
 
 let showBudgetForm = false;
+let spendingMonthOffset = 0;
 let showCategoryManager = false;
 let showIncomeForm = false;
 
@@ -1432,26 +1508,21 @@ function renderOverviewSub(){
   const spent = monthTotal();
   const income = monthIncomeTotal();
   const leftToSpend = income - spent;
-  const view = state.spendingView;
-  const qTotal = periodTxnTotal(view);
-  const qCats = periodCategoryTotals(view);
-  const qMax = qCats.length ? qCats[0][1] : 1;
+  const spentPct = income > 0 ? Math.min(100, Math.round((spent/income)*100)) : (spent>0 ? 100 : 0);
+  const overIncome = spent > income;
   const budgetEntries = Object.entries(state.categoryBudgets);
+  const viewYm = ymFromOffset(spendingMonthOffset);
+  const monthCats = categoryTotalsForMonth(viewYm);
+  const monthMax = monthCats.length ? monthCats[0][1] : 1;
+  const monthTotalForView = monthTotalFor(viewYm);
+
   return `
     <div class="stat-card hero" style="margin-bottom:10px;">
       <div class="num" style="color:${leftToSpend>=0?'var(--sage)':'#A5291E'};">${leftToSpend>=0?'':'−'}${fmtMoney(Math.abs(leftToSpend))}</div>
       <div class="label">Left to spend this month</div>
     </div>
-    <div class="spend-summary" style="margin-bottom:16px;">
-      <div class="stat-card">
-        <div class="num">${fmtMoney(spent)}</div>
-        <div class="label">Spent so far</div>
-      </div>
-      <div class="stat-card">
-        <div class="num">${fmtMoney(income)}</div>
-        <div class="label">Income this month</div>
-      </div>
-    </div>
+    <div class="spend-bar-track"><div class="spend-bar-fill ${overIncome?'over':''}" style="width:${spentPct}%"></div></div>
+    <p class="spend-bar-caption">${fmtMoney(spent)} spent of ${fmtMoney(income)} income this month</p>
 
     <p class="section-title">Budgets by category</p>
     ${budgetEntries.length ? budgetEntries.map(([cat,budget])=>{
@@ -1482,7 +1553,7 @@ function renderOverviewSub(){
         <button class="btn rust" id="set-budget">Set budget</button>
         <button class="qs-close-btn" id="cancel-budget-form" style="margin-top:8px;">Cancel</button>
       </div>
-    ` : `<div class="add-toggle" id="toggle-budget-form">+ Set a category budget</div>`}
+    ` : `<span class="text-link" id="toggle-budget-form">+ Set a category budget</span>`}
 
     ${showCategoryManager ? `
       <p class="section-title">Categories</p>
@@ -1495,22 +1566,21 @@ function renderOverviewSub(){
         <button class="btn rust" id="add-category">Add category</button>
         <button class="qs-close-btn" id="cancel-category-manager" style="margin-top:8px;">Close</button>
       </div>
-    ` : `<div class="add-toggle" id="toggle-category-manager">+ Manage categories</div>`}
+    ` : `<span class="text-link" id="toggle-category-manager">+ Manage categories</span>`}
 
     <p class="section-title">By category</p>
-    <div class="period-select-wrap">
-      <select class="period-select" data-period-target="spending">${periodOptionsHTML(view)}</select>
+    <div class="month-nav">
+      <button class="icon-btn" data-spend-month-nav="1" title="Previous month">‹</button>
+      <span class="month-nav-label">${monthLabel(viewYm)}</span>
+      <button class="icon-btn" data-spend-month-nav="-1" ${spendingMonthOffset===0?'disabled':''} title="Next month">›</button>
     </div>
-    <div class="stat-card" style="margin-bottom:14px;">
-      <div class="num">${fmtMoney(qTotal)}</div>
-      <div class="label">Total spent · ${labelForView(view)}</div>
-    </div>
-    ${qCats.length ? qCats.map(([cat,amt])=>`
+    ${spendingMonthOffset>0 ? `<p class="spend-bar-caption" style="margin-top:-10px;">${fmtMoney(monthTotalForView)} total spent</p>` : ''}
+    ${monthCats.length ? monthCats.map(([cat,amt])=>`
       <div class="cat-bar-row">
         <div class="cat-bar-label"><span>${cat}</span><span>${fmtMoney(amt)}</span></div>
-        <div class="cat-track"><div class="cat-fill" style="width:${Math.round((amt/qMax)*100)}%"></div></div>
+        <div class="cat-track"><div class="cat-fill" style="width:${Math.round((amt/monthMax)*100)}%"></div></div>
       </div>
-    `).join('') : `<p class="empty">No spending logged for ${labelForView(view)} yet.</p>`}
+    `).join('') : `<p class="empty">No spending logged for ${monthLabel(viewYm)}.</p>`}
   `;
 }
 
@@ -1635,8 +1705,9 @@ function renderSavingsSub(){
           ${s.due ? `<span class="due-date">${s.due}</span>` : ''}
         </div>
         <div class="savings-controls">
-          <input type="number" placeholder="Add amount" step="0.01" id="contrib-${s.id}">
+          <input type="number" placeholder="Amount" step="0.01" id="contrib-${s.id}">
           <button class="btn sage small" data-add-contrib="${s.id}">Add</button>
+          <button class="btn rust small" data-withdraw-contrib="${s.id}">Withdraw</button>
         </div>
       </div>
     `;}).join('') : '<p class="empty">No savings goals yet.</p>'}
@@ -1943,6 +2014,14 @@ function attachEvents(){
     });
   });
 
+  document.querySelectorAll('[data-spend-month-nav]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const delta = Number(el.getAttribute('data-spend-month-nav'));
+      spendingMonthOffset = Math.max(0, spendingMonthOffset + delta);
+      render();
+    });
+  });
+
   document.querySelectorAll('[data-edit-habit]').forEach(el=>{
     el.addEventListener('click', ()=>{
       editingHabitId = Number(el.getAttribute('data-edit-habit'));
@@ -2002,6 +2081,20 @@ function attachEvents(){
       if(!amt || amt<=0) return;
       const s = state.savings.find(x=>x.id===id);
       s.saved += amt;
+      input.value = '';
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-withdraw-contrib]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const id = Number(el.getAttribute('data-withdraw-contrib'));
+      const input = document.getElementById('contrib-'+id);
+      const amt = parseFloat(input.value);
+      if(!amt || amt<=0) return;
+      const s = state.savings.find(x=>x.id===id);
+      s.saved = Math.max(0, s.saved - amt);
+      input.value = '';
       render();
     });
   });
