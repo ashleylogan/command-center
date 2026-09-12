@@ -14,6 +14,7 @@
 <link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiQ29tbWFuZCBDZW50ZXIiLCJzaG9ydF9uYW1lIjoiQ29tbWFuZCBDZW50ZXIiLCJzdGFydF91cmwiOiIuIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiI0VERThERCIsInRoZW1lX2NvbG9yIjoiI0VERThERCIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWw7YmFzZTY0LFBITjJaeUI0Yld4dWN6MGlhSFIwY0RvdkwzZDNkeTUzTXk1dmNtY3ZNakF3TUM5emRtY2lJSFpwWlhkQ2IzZzlJakFnTUNBeE9USWdNVGt5SWo0S1BISmxZM1FnZDJsa2RHZzlJakU1TWlJZ2FHVnBaMmgwUFNJeE9USWlJSEo0UFNJME1DSWdabWxzYkQwaUl6STBNakV4UkNJdlBnbzhZMmx5WTJ4bElHTjRQU0k1TmlJZ1kzazlJamsySWlCeVBTSTBOaUlnWm1sc2JEMGlibTl1WlNJZ2MzUnliMnRsUFNJalJVUkZPRVJFSWlCemRISnZhMlV0ZDJsa2RHZzlJamdpTHo0S1BIQmhkR2dnWkQwaVRUYzRJRGs0YkRFeUlERTBJREkyTFRNMElpQm1hV3hzUFNKdWIyNWxJaUJ6ZEhKdmEyVTlJaU5CT0RkR01rVWlJSE4wY205clpTMTNhV1IwYUQwaU1UQWlJSE4wY205clpTMXNhVzVsWTJGd1BTSnliM1Z1WkNJZ2MzUnliMnRsTFd4cGJtVnFiMmx1UFNKeWIzVnVaQ0l2UGdvOEwzTjJaejRLIiwic2l6ZXMiOiIxOTJ4MTkyIiwidHlwZSI6ImltYWdlL3N2Zyt4bWwifV19Cg==">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   :root{
     --paper:#EDE8DD;
@@ -707,11 +708,52 @@
   nav button.active{color:var(--ink);}
   nav button svg{width:20px;height:20px;}
   nav button.active svg{stroke:var(--ink);}
+
+  /* Auth gate */
+  .auth-gate{
+    position:absolute;inset:0;z-index:50;
+    background:var(--paper);
+    display:flex;align-items:center;justify-content:center;
+    padding:30px;
+  }
+  .auth-gate.hidden{display:none;}
+  .auth-box{width:100%;max-width:300px;text-align:center;}
+  .auth-title{font-family:'Fraunces',serif;font-size:26px;font-weight:500;margin:0 0 10px;}
+  .auth-sub{font-size:13px;color:var(--ink-soft);margin:0 0 20px;line-height:1.5;}
+  .auth-input{
+    width:100%;font-family:'Inter',sans-serif;font-size:14px;
+    padding:11px 12px;border:1px solid var(--line);border-radius:var(--radius);
+    background:#fff;color:var(--ink);margin-bottom:10px;text-align:center;
+  }
+  .auth-status{font-size:12px;color:var(--ink-soft);min-height:16px;margin:10px 0 0;}
+  .auth-status.err{color:#A5291E;}
+  .auth-check-msg{
+    margin-top:16px;padding:12px;background:var(--sage-bg);border-radius:var(--radius);
+    font-size:13px;color:var(--ink);line-height:1.5;
+  }
+  .auth-check-msg.hidden{display:none;}
+  .auth-skip{
+    display:block;margin-top:18px;font-size:12px;color:var(--ink-soft);
+    text-decoration:underline;cursor:pointer;
+  }
 </style>
 </head>
 <body>
 <div class="phone navwrap">
   <div class="statusbar"></div>
+  <div id="auth-gate" class="auth-gate hidden">
+    <div class="auth-box">
+      <h1 class="auth-title">Command Center</h1>
+      <p class="auth-sub" id="auth-sub">Sign in to sync your data to your own private account.</p>
+      <input type="email" id="auth-email" class="auth-input" placeholder="you@example.com">
+      <button class="btn gold" id="auth-send-link">Send me a sign-in link</button>
+      <p class="auth-status" id="auth-status"></p>
+      <div class="auth-check-msg hidden" id="auth-check-msg">
+        Check your email for a sign-in link, then come back to this tab.
+      </div>
+      <span class="auth-skip" id="auth-skip">Continue without an account (this device only)</span>
+    </div>
+  </div>
   <header>
     <p class="eyebrow" id="dateline"></p>
     <h1 id="pagetitle">Dashboard</h1>
@@ -2086,23 +2128,58 @@ const STORAGE_KEY = 'life-command-center-state';
 let saveTimer = null;
 let storageAvailable = true;
 
-// Uses Claude's artifact storage when available (viewing this inside claude.ai);
-// otherwise falls back to standard browser localStorage, so the exact same file
-// works when hosted anywhere else and installed to a phone's home screen.
+// --- Cloud sync (optional) ---
+// Fill these in with your own Supabase project's values to enable real
+// account-based sync. Leave them as-is to keep using on-device storage only.
+const SUPABASE_URL = 'https://rckwiityldesihkxtbzv.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJja3dpaXR5bGRlc2loa3h0Ynp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMDYzNjUsImV4cCI6MjEwNDc4MjM2NX0.h-8IHudj7oDM5IHlKuEGKdif5eBsjGN89Na9Zo1jIUE';
+const cloudConfigured = SUPABASE_URL !== 'YOUR_SUPABASE_URL' && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
+let supabaseClient = (cloudConfigured && typeof window !== 'undefined' && window.supabase)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+let currentUser = null;
+let skippedAuth = false;
+
+function cloudActive(){
+  return !!(supabaseClient && currentUser && !skippedAuth);
+}
+
+// Uses (in priority order): a signed-in Supabase account, Claude's artifact
+// storage (viewing this inside claude.ai), or standard browser localStorage —
+// so the exact same file works hosted anywhere and installed to a phone.
 const hasArtifactStorage = (typeof window !== 'undefined') && !!window.storage;
 
 async function storageGet(key){
+  if(cloudActive()){
+    const { data, error } = await supabaseClient
+      .from('app_state').select('data').eq('user_id', currentUser.id).maybeSingle();
+    if(error) throw error;
+    if(!data) throw new Error('not found');
+    return { key, value: JSON.stringify(data.data) };
+  }
   if(hasArtifactStorage) return await window.storage.get(key, false);
   const v = localStorage.getItem(key);
   if(v === null) throw new Error('not found');
   return { key, value: v };
 }
 async function storageSet(key, value){
+  if(cloudActive()){
+    const { error } = await supabaseClient
+      .from('app_state')
+      .upsert({ user_id: currentUser.id, data: JSON.parse(value), updated_at: new Date().toISOString() });
+    if(error) throw error;
+    return { key, value };
+  }
   if(hasArtifactStorage) return await window.storage.set(key, value, false);
   localStorage.setItem(key, value);
   return { key, value };
 }
 async function storageDelete(key){
+  if(cloudActive()){
+    const { error } = await supabaseClient.from('app_state').delete().eq('user_id', currentUser.id);
+    if(error) throw error;
+    return;
+  }
   if(hasArtifactStorage) return await window.storage.delete(key, false);
   localStorage.removeItem(key);
 }
@@ -2251,8 +2328,90 @@ function restoreFromFile(file){
   reader.readAsText(file);
 }
 
-document.getElementById('main').innerHTML = '<p class="empty">Loading your data…</p>';
-loadState();
+function setAuthStatus(text, kind){
+  const el = document.getElementById('auth-status');
+  if(!el) return;
+  el.textContent = text;
+  el.className = 'auth-status' + (kind ? ' '+kind : '');
+}
+
+function showAuthGate(sub){
+  const gate = document.getElementById('auth-gate');
+  if(gate) gate.classList.remove('hidden');
+  const subEl = document.getElementById('auth-sub');
+  if(subEl && sub) subEl.textContent = sub;
+}
+function hideAuthGate(){
+  const gate = document.getElementById('auth-gate');
+  if(gate) gate.classList.add('hidden');
+}
+
+async function sendMagicLink(){
+  const email = document.getElementById('auth-email').value.trim();
+  if(!email || !email.includes('@')){
+    setAuthStatus('Enter a valid email address', 'err');
+    return;
+  }
+  setAuthStatus('Sending…');
+  try{
+    const { error } = await supabaseClient.auth.signInWithOtp({ email });
+    if(error) throw error;
+    setAuthStatus('');
+    document.getElementById('auth-check-msg').classList.remove('hidden');
+  } catch(err){
+    console.error('Sign-in link failed:', err);
+    setAuthStatus("Couldn't send the link — try again", 'err');
+  }
+}
+
+function wireAuthGateEvents(){
+  const sendBtn = document.getElementById('auth-send-link');
+  if(sendBtn) sendBtn.addEventListener('click', sendMagicLink);
+  const skipBtn = document.getElementById('auth-skip');
+  if(skipBtn) skipBtn.addEventListener('click', ()=>{
+    skippedAuth = true;
+    hideAuthGate();
+    document.getElementById('main').innerHTML = '<p class="empty">Loading your data…</p>';
+    loadState();
+  });
+}
+
+async function startApp(){
+  wireAuthGateEvents();
+
+  if(!cloudConfigured || !supabaseClient){
+    // No cloud project configured — behave exactly as before (artifact storage / localStorage).
+    document.getElementById('main').innerHTML = '<p class="empty">Loading your data…</p>';
+    loadState();
+    return;
+  }
+
+  let appStarted = false;
+  const beginLoadingApp = ()=>{
+    if(appStarted) return;
+    appStarted = true;
+    hideAuthGate();
+    document.getElementById('main').innerHTML = '<p class="empty">Loading your data…</p>';
+    loadState();
+  };
+
+  supabaseClient.auth.onAuthStateChange((event, session)=>{
+    if(session && session.user){
+      currentUser = session.user;
+      beginLoadingApp();
+    }
+  });
+
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if(session && session.user){
+    currentUser = session.user;
+    beginLoadingApp();
+  } else {
+    showAuthGate();
+  }
+}
+
+startApp();
 </script>
 </body>
 </html>
